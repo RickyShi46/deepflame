@@ -1,0 +1,54 @@
+https://github.com/deepmodeling/deepflame-dev/blob/GPU-dev/src_gpu/dfEEqn.cu#L245
+
+// print info: "EEqn solve, dataBase_.num_cells: 262144, nNz: 1810432"
+
+void dfEEqn::solve()
+{
+    int nNz = dataBase_.num_cells + dataBase_.num_surfaces * 2; // matrix entries
+
+    fprintf(stderr, "EEqn solve, dataBase_.num_cells: %d, nNz: %d\n", dataBase_.num_cells, nNz);
+    void* h_A = malloc(dataBase_.csr_value_bytes);
+    void* h_b = malloc(dataBase_.cell_value_bytes);
+    void* h_x = malloc(dataBase_.cell_value_bytes);
+    void* h_csr_row_index = malloc(dataBase_.csr_row_index_bytes);
+    void* h_csr_col_index = malloc(dataBase_.csr_col_index_bytes);
+    checkCudaErrors(cudaMemcpy(h_A, d_A, dataBase_.csr_value_bytes, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_b, d_b, dataBase_.cell_value_bytes, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_x, dataBase_.d_he, dataBase_.cell_value_bytes, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_csr_row_index, dataBase_.d_csr_row_index, dataBase_.csr_row_index_bytes, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(h_csr_col_index, dataBase_.d_csr_col_index, dataBase_.csr_col_index_bytes, cudaMemcpyDeviceToHost));
+    char A_name[64];
+    sprintf(A_name, "A_%d", num_iteration);
+    char b_name[64];
+    sprintf(b_name, "b_%d", num_iteration);
+    char x_name[64];
+    sprintf(x_name, "x_%d", num_iteration);
+    ofstream A_file(A_name, ios::out | ios::binary);
+    ofstream b_file(b_name, ios::out | ios::binary);
+    ofstream x_file(x_name, ios::out | ios::binary);
+    A_file.write((const char*)h_A, dataBase_.csr_value_bytes);
+    b_file.write((const char*)h_b, dataBase_.cell_value_bytes);
+    x_file.write((const char*)h_x, dataBase_.cell_value_bytes);
+    A_file.close();
+    b_file.close();
+    x_file.close();
+
+    ofstream csr_row_index_file("csr_row_index", ios::out | ios::binary);
+    ofstream csr_col_index_file("csr_col_index", ios::out | ios::binary);
+    csr_row_index_file.write((const char*)h_csr_row_index, dataBase_.csr_row_index_bytes);
+    csr_col_index_file.write((const char*)h_csr_col_index, dataBase_.csr_col_index_bytes);
+    csr_row_index_file.close();
+    csr_col_index_file.close();
+
+    if (num_iteration == 0)                                     // first interation
+    {
+        printf("Initializing AmgX Linear Solver\n");
+        ESolver->setOperator(dataBase_.num_cells, nNz, dataBase_.d_csr_row_index, dataBase_.d_csr_col_index, d_A);
+    }
+    else
+    {
+        ESolver->updateOperator(dataBase_.num_cells, nNz, d_A);
+    }
+    ESolver->solve(dataBase_.num_cells, dataBase_.d_he, d_source);
+    num_iteration++;
+}
